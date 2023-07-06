@@ -1,4 +1,19 @@
 #lang sicp
+(#%require graphics/graphics)
+(open-graphics)
+(define vp (open-viewport "Picture Language" 500 500))
+
+(#%provide clear)
+(define (clear) ((clear-viewport vp)))
+
+(define (vector-to-posn v)
+  (make-posn (xcor-vect v) (- 500 (ycor-vect v))))
+
+(#%provide line)
+(define (line a b)
+  ((draw-line vp)
+    (vector-to-posn a)
+    (vector-to-posn b)))
 
 ;; Chapter 2
 ;; Building Abstractions with Data
@@ -410,15 +425,15 @@
           (next (+ k 1))))))
   (next 0))
 
-(#%provide filter-)
-(define (filter- predicate sequence)
+(#%provide filter)
+(define (filter predicate sequence)
   (cond
     ((null? sequence) nil)
     ((predicate (car sequence))
      (cons
        (car sequence)
-       (filter- predicate (cdr sequence))))
-    (else (filter- predicate (cdr sequence)))))
+       (filter predicate (cdr sequence))))
+    (else (filter predicate (cdr sequence)))))
 
 (#%provide accumulate)
 (define (accumulate op initial sequence)
@@ -448,13 +463,13 @@
 (define (sum-odd-squares tree)
   (accumulate + 0
     (map square
-      (filter- odd?
+      (filter odd?
         (enumerate-tree tree)))))
 
 (#%provide even-fibs)
 (define (even-fibs n)
   (accumulate cons nil
-    (filter- even?
+    (filter even?
       (map fib
         (enumerate-interval 0 n)))))
 
@@ -469,13 +484,13 @@
 (define (product-of-squares-of-odd-elements sequence)
   (accumulate * 1
     (map square
-      (filter- odd?
+      (filter odd?
         sequence))))
 
 #| (define (salary-of-highest-paid-programmer records) |#
 #|   (accumulate max 0 |#
 #|     (map salary |#
-#|       (filter- programmer? |#
+#|       (filter programmer? |#
 #|         records)))) |#
 
 #| 2.33 |#
@@ -524,3 +539,704 @@
       (accumulate op init (map car seqs))
       (accumulate-n op init (map cdr seqs)))))
 
+#| 2.37 |#
+
+(#%provide dot-product)
+(define (dot-product v w)
+  (accumulate + 0 (map * v w)))
+
+(#%provide matrix-*-vector)
+(define (matrix-*-vector m v)
+  (map (lambda (w) (dot-product v w)) m))
+
+(#%provide transpose)
+(define (transpose mat)
+  (accumulate-n cons nil mat))
+
+(#%provide matrix-*-matrix)
+(define (matrix-*-matrix m n)
+  (let ((cols (transpose n)))
+    (map (lambda (v) (matrix-*-vector m v)) cols)))
+
+#| 2.38 |#
+
+(#%provide fold-left)
+(define (fold-left op initial sequence)
+  (define (iter result rest)
+    (if (null? rest)
+      result
+      (iter
+        (op result (car rest))
+        (cdr rest))))
+  (iter initial sequence))
+
+(#%provide fold-right)
+(define fold-right accumulate)
+
+#| (fold-right / 1 (list 1 2 3)) |#
+#| (fold-left / 1 (list 1 2 3)) |#
+#| (fold-right list nil (list 1 2 3)) |#
+#| (fold-left list nil (list 1 2 3)) |#
+
+#| 3/2 |#
+#| 1/6 |#
+#| (list 1 (list 2 (list 3 nil))) |#
+#| (list (list (list nil 1) 2) 3) |#
+
+  #| A |#
+#| 1   \ |#
+  #|     A |#
+  #|   A   \ |#
+  #| 2   \   n |#
+  #|       A |#
+  #|     A   \ |#
+  #|   3   A   n |#
+  #|     n   n |#
+
+          #| A |#
+        #| /   A |#
+      #| A   3   n |#
+    #| /   A |#
+  #| A   2   n |#
+#| n   A |#
+  #| 1   n |#
+
+;; op should be associative for fold-left and fold-right to
+;; give the same result
+
+
+#| 2.39 |#
+
+(#%provide reverse-right)
+(define (reverse-right sequence)
+  (fold-right (lambda (x y) (append y (list x))) nil sequence))
+
+(#%provide reverse-left)
+(define (reverse-left sequence)
+  (fold-left (lambda (x y) (cons y x)) nil sequence))
+
+(#%provide flatmap)
+(define (flatmap proc seq)
+  (accumulate append nil (map proc seq)))
+
+(define (prime-sum? pair)
+  (prime? (+ (car pair) (cadr pair))))
+
+(define (make-pair-sum pair)
+  (list (car pair) (cadr pair) (+ (car pair) (cadr pair))))
+
+(define (smallest-divisor n)
+  (find-divisor n 2))
+
+(define (find-divisor n test-divisor)
+  (define (next n)
+    (if (= n 2) 3 (+ n 2)))
+  (cond
+    ((> (square test-divisor) n) n)
+    ((divides? test-divisor n) test-divisor)
+    (else (find-divisor n (next test-divisor)))))
+
+(define (divides? a b)
+  (= (remainder b a) 0))
+
+(#%provide prime?)
+(define (prime? n)
+  (= n (smallest-divisor n)))
+
+(#%provide prime-sum-pairs)
+(define (prime-sum-pairs n)
+  (map make-pair-sum
+    (filter prime-sum?
+      (flatmap
+        (lambda (i)
+          (map
+            (lambda (j) (list i j))
+            (enumerate-interval 1 (- i 1))))
+        (enumerate-interval 1 n)))))
+
+(define (remove item sequence)
+  (filter
+    (lambda (x) (not (= x item)))
+    sequence))
+
+(#%provide permutations)
+(define (permutations s)
+  (if (null? s)
+    (list nil)
+    (flatmap
+      (lambda (x)
+        (map
+          (lambda (p) (cons x p))
+          (permutations (remove x s))))
+      s)))
+
+#| 2.40 |#
+
+(#%provide unique-pairs)
+(define (unique-pairs n)
+  (flatmap
+    (lambda (i)
+      (map
+        (lambda (j) (list i j))
+        (enumerate-interval 1 (- i 1))))
+    (enumerate-interval 1 n)))
+
+(#%provide prime-sum-pairs-)
+(define (prime-sum-pairs- n)
+  (map make-pair-sum
+    (filter prime-sum?
+      (unique-pairs n))))
+
+#| 2.41 |#
+
+(#%provide unique-triple-sum)
+(define (unique-triple-sum n)
+  (filter
+    (lambda (xyz) (= (accumulate + 0 xyz) n))
+    (let ((s (enumerate-interval 1 n)))
+      (flatmap
+        (lambda (x)
+          (let ((s- (remove x s)))
+            (flatmap
+              (lambda (y)
+                (map
+                  (lambda (z) (list x y z))
+                  (remove y s-)))
+              s-)))
+        s))))
+
+#| 2.42 |#
+
+(define (make-pos r c) (list r c))
+
+(define (row pos) (car pos))
+
+(define (col pos) (cadr pos))
+
+(define empty-board nil)
+
+(define (adjoin-position r c board)
+  (cons (make-pos r c) board))
+
+(define (find-by-col k board)
+  (car
+    (filter
+      (lambda (pos) (= (col pos) k))
+      board)))
+
+(define (all-but k board)
+  (filter
+    (lambda (pos) (not (= (col pos) k)))
+    board))
+
+(define (safe? k board)
+  (let
+    ((new-pos (find-by-col k board)))
+    (accumulate (lambda (x y) (and x y)) true
+      (map
+        (lambda (q)
+          (not
+            (or
+              (= (row q) (row new-pos))
+              (= (+ (row q) (col q)) (+ (row new-pos) (col new-pos)))
+              (= (+ (row q) (col new-pos)) (+ (row new-pos) (col q))))))
+        (cdr board)))))
+
+(#%provide queens)
+(define (queens board-size)
+  (define (queen-cols k)
+    (if (= k 0)
+      (list empty-board)
+      (filter
+        (lambda (positions) (safe? k positions))
+        (flatmap
+          (lambda (rest-of-queens)
+            (map
+              (lambda (new-row)
+                (adjoin-position new-row k rest-of-queens))
+              (enumerate-interval 1 board-size)))
+          (queen-cols (- k 1))))))
+  (queen-cols board-size))
+
+#| 2.43 |#
+
+(#%provide slow-queens)
+(define (slow-queens board-size)
+  (define (queen-cols k)
+    (if (= k 0)
+      (list empty-board)
+      (filter
+        (lambda (positions) (safe? k positions))
+        (flatmap
+          (lambda (new-row)
+            (map
+              (lambda (rest-of-queens)
+                (adjoin-position new-row k rest-of-queens))
+              (queen-cols (- k 1))))
+          (enumerate-interval 1 board-size)))))
+  (queen-cols board-size))
+
+(define (beside- painter1 painter2)
+  (let
+    ((split-point (make-vect 0.5 0)))
+    (let
+      ((paint-left
+         (transform-painter
+           painter1
+           (make-vect 0 0)
+           split-point
+           (make-vect 0 1)))
+       (paint-right
+         (transform-painter
+           painter2
+           split-point
+           (make-vect 1 0)
+           (make-vect 0.5 1))))
+      (lambda (frame)
+        (paint-left frame)
+        (paint-right frame)))))
+
+(define (below-- painter1 painter2)
+  (rotate270
+    (beside-
+      (rotate90 painter2)
+      (rotate90 painter1))))
+
+(#%provide right-split)
+(define (right-split painter n)
+  (if (= n 0)
+    painter
+    (let
+      ((smaller (right-split painter (- n 1))))
+      (beside- painter (below-- smaller smaller)))))
+
+(#%provide corner-split)
+(define (corner-split painter n)
+  (if (= n 0)
+    painter
+    (let
+      ((up (up-split painter (- n 1)))
+       (right (right-split painter (- n 1))))
+      (let
+        ((top-left (beside- up up))
+         (bottom-right (below-- right right))
+         (corner (corner-split painter (- n 1))))
+        (beside-
+          (below-- painter top-left)
+          (below-- bottom-right corner))))))
+
+(define (flip-vert- painter)
+  (transform-painter
+    painter
+    (make-vect 0 1)
+    (make-vect 1 1)
+    (make-vect 0 0)))
+
+(#%provide square-limit)
+(define (square-limit painter n)
+  (let
+    ((quarter (corner-split painter n)))
+    (let
+      ((half (beside- (flip-horiz quarter) quarter)))
+      (below-- (flip-vert- half) half))))
+
+#| 2.44 |#
+
+(#%provide up-split)
+(define (up-split painter n)
+  (if (= n 0)
+    painter
+    (let
+      ((smaller (up-split painter (- n 1))))
+      (below-- painter (beside- smaller smaller)))))
+
+(define (square-of-four tl tr bl br)
+  (lambda (painter)
+    (let
+      ((top (beside (tl painter) (tr painter)) )
+       (bottom (beside (bl painter) (br painter))))
+      (below bottom top))))
+
+(define (flipped-pairs painter)
+  (let
+    ((combine4
+       (square-of-four 
+         identity flip-vert-
+         identity flip-vert-)))
+    (combine4 painter)))
+
+(define flipped-pairs- (square-of-four identity flip-vert- identity flip-vert-))
+
+(#%provide square-limit-)
+(define (square-limit- painter n)
+  (let
+    ((combine4
+       (square-of-four
+         flip-horiz identity
+         rotate180 flip-vert-)))
+    (combine4 (corner-split painter n))))
+
+#| 2.45 |#
+
+(#%provide split)
+(define (split a b)
+  (lambda (painter n)
+    (if (= n 0)
+      painter
+      (let
+        ((smaller ((split a b) painter (- n 1))))
+        (a painter (b smaller smaller))))))
+
+(#%provide right-split-)
+(define right-split- (split beside- below--))
+
+(#%provide up-split-)
+(define up-split- (split below-- beside-))
+
+(#%provide frame-coord-map)
+(define (frame-coord-map frame)
+  (lambda (v)
+    (add-vect
+      (origin-frame frame)
+      (add-vect
+        (scale-vect
+          (xcor-vect v)
+          (edge1-frame frame))
+        (scale-vect
+          (ycor-vect v)
+          (edge2-frame frame))))))
+
+#| 2.46 |#
+
+(#%provide make-vect)
+(define (make-vect x y)
+  (list x y))
+
+(#%provide xcor-vect)
+(define (xcor-vect v)
+  (car v))
+
+(#%provide ycor-vect)
+(define (ycor-vect v)
+  (cadr v))
+
+(#%provide add-vect)
+(define (add-vect v u)
+  (map + v u))
+
+(#%provide sub-vect)
+(define (sub-vect v u)
+  (map - v u))
+
+(#%provide scale-vect)
+(define (scale-vect s v)
+  (map (lambda (x) (* x s)) v))
+
+#| 2.47 |#
+
+(#%provide make-frame)
+(define (make-frame origin edge1 edge2)
+  (list origin edge1 edge2))
+
+(#%provide origin-frame)
+(define (origin-frame f) (car f))
+
+(#%provide edge1-frame)
+(define (edge1-frame f) (cadr f))
+
+(#%provide edge2-frame)
+(define (edge2-frame f) (caddr f))
+
+(#%provide make-frame-)
+(define (make-frame- origin edge1 edge2)
+  (cons origin (cons edge1 edge2)))
+
+(#%provide origin-frame-)
+(define (origin-frame- f) (car f))
+
+(#%provide edge1-frame-)
+(define (edge1-frame- f) (cadr f))
+
+(#%provide edge2-frame-)
+(define (edge2-frame- f) (cddr f))
+
+(#%provide default-frame)
+(define default-frame
+  (make-frame
+    (make-vect 20 20)
+    (make-vect 460 0)
+    (make-vect 0 460)))
+
+(define (segments->painter segment-list)
+  (lambda (frame)
+    (for-each-
+      (lambda (segment)
+        (line
+          ((frame-coord-map frame) (start-segment segment))
+          ((frame-coord-map frame) (end-segment segment))))
+      segment-list)))
+
+#| 2.48 |#
+
+(#%provide make-segment)
+(define (make-segment start end)
+  (cons start end))
+
+(#%provide start-segment)
+(define (start-segment s) (car s))
+
+(#%provide end-segment)
+(define (end-segment s) (cdr s))
+
+#| 2.49 |#
+
+(#%provide outline)
+(define (outline frame)
+  (let
+    ((segments
+       (let
+         ((a (make-vect 0 0))
+          (b (make-vect 0 1))
+          (c (make-vect 1 1))
+          (d (make-vect 1 0)))
+         (list
+           (make-segment a b)
+           (make-segment b c)
+           (make-segment c d)
+           (make-segment d a)))))
+    ((segments->painter segments) frame)))
+
+(#%provide cross)
+(define (cross frame)
+  (let
+    ((segments
+       (let
+         ((a (make-vect 0 0))
+          (b (make-vect 0 1))
+          (c (make-vect 1 1))
+          (d (make-vect 1 0)))
+         (list
+           (make-segment a c)
+           (make-segment b d)))))
+    ((segments->painter segments) frame)))
+
+(#%provide diamond)
+(define (diamond frame)
+  (let
+    ((segments
+       (let
+         ((ab (make-vect 0 0.5))
+          (bc (make-vect 0.5 1))
+          (cd (make-vect 1 0.5))
+          (da (make-vect 0.5 0)))
+         (list
+           (make-segment ab bc)
+           (make-segment bc cd)
+           (make-segment cd da)
+           (make-segment da ab)))))
+    ((segments->painter segments) frame)))
+
+(#%provide wave)
+(define wave
+  (segments->painter
+   (list
+    (make-segment (make-vect 0.20 0.00) (make-vect 0.35 0.50))
+    (make-segment (make-vect 0.35 0.50) (make-vect 0.30 0.60))
+    (make-segment (make-vect 0.30 0.60) (make-vect 0.15 0.45))
+    (make-segment (make-vect 0.15 0.45) (make-vect 0.00 0.60))
+    (make-segment (make-vect 0.00 0.80) (make-vect 0.15 0.65))
+    (make-segment (make-vect 0.15 0.65) (make-vect 0.30 0.70))
+    (make-segment (make-vect 0.30 0.70) (make-vect 0.40 0.70))
+    (make-segment (make-vect 0.40 0.70) (make-vect 0.35 0.85))
+    (make-segment (make-vect 0.35 0.85) (make-vect 0.40 1.00))
+    (make-segment (make-vect 0.60 1.00) (make-vect 0.65 0.85))
+    (make-segment (make-vect 0.65 0.85) (make-vect 0.60 0.70))
+    (make-segment (make-vect 0.60 0.70) (make-vect 0.75 0.70))
+    (make-segment (make-vect 0.75 0.70) (make-vect 1.00 0.40))
+    (make-segment (make-vect 1.00 0.20) (make-vect 0.60 0.48))
+    (make-segment (make-vect 0.60 0.48) (make-vect 0.80 0.00))
+    (make-segment (make-vect 0.40 0.00) (make-vect 0.50 0.30))
+    (make-segment (make-vect 0.50 0.30) (make-vect 0.60 0.00)))))
+
+#| 2.50 |#
+
+(#%provide transform-painter)
+(define (transform-painter painter origin corner1 corner2)
+  (lambda (frame)
+    (let
+      ((m (frame-coord-map frame)))
+      (let
+        ((new-origin (m origin)))
+        (painter
+          (make-frame
+            new-origin
+            (sub-vect (m corner1) new-origin)
+            (sub-vect (m corner2) new-origin)))))))
+
+(#%provide flip-vert)
+(define (flip-vert painter)
+  (transform-painter
+    painter
+    (make-vect 0 1)
+    (make-vect 1 1)
+    (make-vect 0 0)))
+
+(#%provide shrink-to-upper-right)
+(define (shrink-to-upper-right painter)
+  (transform-painter
+    painter
+    (make-vect 0.5 0.5)
+    (make-vect 1.0 0.5)
+    (make-vect 0.5 1.0)))
+
+(#%provide rotate90)
+(define (rotate90 painter)
+  (transform-painter
+    painter
+    (make-vect 1 0)
+    (make-vect 1 1)
+    (make-vect 0 0)))
+
+(#%provide squash-inwards)
+(define (squash-inwards painter)
+  (transform-painter
+    painter
+    (make-vect 0 0)
+    (make-vect 0.65 0.35)
+    (make-vect 0.35 0.65)))
+
+#| 2.50 |#
+
+(#%provide beside)
+(define (beside painter1 painter2)
+  (let
+    ((split-point (make-vect 0.5 0)))
+    (let
+      ((paint-left
+         (transform-painter
+           painter1
+           (make-vect 0 0)
+           split-point
+           (make-vect 0 1)))
+       (paint-right
+         (transform-painter
+           painter2
+           split-point
+           (make-vect 1 0)
+           (make-vect 0.5 1))))
+      (lambda (frame)
+        (paint-left frame)
+        (paint-right frame)))))
+
+(#%provide flip-horiz)
+(define (flip-horiz painter)
+  (transform-painter
+    painter
+    (make-vect 1 0)
+    (make-vect 0 0)
+    (make-vect 1 1)))
+
+(#%provide rotate180)
+(define (rotate180 painter)
+  (transform-painter
+    painter
+    (make-vect 1 1)
+    (make-vect 0 1)
+    (make-vect 1 0)))
+
+(#%provide rotate270)
+(define (rotate270 painter)
+  (transform-painter
+    painter
+    (make-vect 0 1)
+    (make-vect 0 0)
+    (make-vect 1 1)))
+
+#| 2.51 |#
+
+(#%provide below)
+(define (below painter1 painter2)
+  (let
+    ((split-point (make-vect 0 0.5)))
+    (let
+      ((paint-bottom
+         (transform-painter
+           painter1
+           (make-vect 0 0)
+           (make-vect 1 0)
+           split-point))
+       (paint-top
+         (transform-painter
+           painter2
+           split-point
+           (make-vect 1 0.5)
+           (make-vect 0 1))))
+      (lambda (frame)
+        (paint-bottom frame)
+        (paint-top frame)))))
+
+(#%provide below-)
+(define (below- painter1 painter2)
+  (rotate270
+    (beside
+      (rotate90 painter2)
+      (rotate90 painter1))))
+
+#| 2.52 |#
+
+(#%provide wave+)
+(define wave+
+  (segments->painter
+   (list
+    (make-segment (make-vect 0.20 0.00) (make-vect 0.35 0.50))
+    (make-segment (make-vect 0.35 0.50) (make-vect 0.30 0.60))
+    (make-segment (make-vect 0.30 0.60) (make-vect 0.15 0.45))
+    (make-segment (make-vect 0.15 0.45) (make-vect 0.00 0.60))
+    (make-segment (make-vect 0.00 0.80) (make-vect 0.15 0.65))
+    (make-segment (make-vect 0.15 0.65) (make-vect 0.30 0.70))
+    (make-segment (make-vect 0.30 0.70) (make-vect 0.40 0.70))
+    (make-segment (make-vect 0.40 0.70) (make-vect 0.35 0.85))
+    (make-segment (make-vect 0.35 0.85) (make-vect 0.40 1.00))
+    (make-segment (make-vect 0.60 1.00) (make-vect 0.65 0.85))
+    (make-segment (make-vect 0.65 0.85) (make-vect 0.60 0.70))
+    (make-segment (make-vect 0.60 0.70) (make-vect 0.75 0.70))
+    (make-segment (make-vect 0.75 0.70) (make-vect 1.00 0.40))
+    (make-segment (make-vect 1.00 0.20) (make-vect 0.60 0.48))
+    (make-segment (make-vect 0.60 0.48) (make-vect 0.80 0.00))
+    (make-segment (make-vect 0.40 0.00) (make-vect 0.50 0.30))
+    (make-segment (make-vect 0.45 0.95) (make-vect 0.45 0.85)) ; new
+    (make-segment (make-vect 0.55 0.95) (make-vect 0.55 0.85)) ; new
+    (make-segment (make-vect 0.40 0.80) (make-vect 0.60 0.80)) ; new
+    (make-segment (make-vect 0.50 0.30) (make-vect 0.60 0.00)))))
+
+(#%provide corner-split+)
+(define (corner-split+ painter n)
+  (if (= n 0)
+    painter
+    (let
+      ((up (up-split painter (- n 1)))
+       (right (right-split painter (- n 1))))
+      (let
+        ((top-left up)
+         (bottom-right right)
+         (corner (corner-split+ painter (- n 1))))
+        (beside
+          (below painter top-left)
+          (below bottom-right corner))))))
+
+(#%provide square-limit+-)
+(define (square-limit+- painter n)
+  (let
+    ((quarter (corner-split+ painter n)))
+    (let
+      ((half (beside- (flip-horiz quarter) quarter)))
+      (below-- (flip-vert- half) half))))
+
+(#%provide square-limit+)
+(define (square-limit+ painter n)
+  (let
+    ((combine4
+       (square-of-four
+         flip-vert rotate180
+         identity flip-horiz)))
+    (combine4 (corner-split painter n))))
