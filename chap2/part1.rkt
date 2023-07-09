@@ -1,4 +1,6 @@
 #lang sicp
+(#%require (only racket/base print-as-expression))
+(print-as-expression #f)
 
 ;; Chapter 2
 ;; Building Abstractions with Data
@@ -77,6 +79,7 @@
 (print-rat one-half)
 (print-rat (add-rat one-half one-third))
 (print-rat (add-rat one-third one-third))
+(newline)
 
 #| 2.2 |#
 

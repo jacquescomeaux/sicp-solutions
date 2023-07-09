@@ -1,4 +1,8 @@
 #lang sicp
+(#%require (only racket/base print-as-expression print-mpair-curly-braces))
+(print-as-expression #f)
+(print-mpair-curly-braces #f)
+
 (#%require graphics/graphics)
 (open-graphics)
 (define vp (open-viewport "Picture Language" 500 500))
