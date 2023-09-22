@@ -33,10 +33,11 @@
 
 #| A |#
 #| -> |# 
-#| (lambda (n) |#
-#|   (if (= n 1) |#
-#|     1 |#
-#|     (* n (factorial (- n 1))))) |#
+#| parameters: n |#
+#| body: |#
+#| (if (= n 1) |#
+#|   1 |#
+#|   (* n (factorial (- n 1)))) |#
 #| -> global |#
 
 #| E1          E2 |# 
@@ -83,18 +84,21 @@
 
 #| A |#
 #| -> |# 
-#| (lambda (product counter max-count) |#
-#|   (if (> counter max-count) |#
-#|     product |#
-#|     (fact-iter |#
-#|       (* counter product) |#
-#|       (+ counter 1) |#
-#|       max-count))) |#
+#| parameters: product counter max-count |#
+#| body: |#
+#| (if (> counter max-count) |#
+#|   product |#
+#|   (fact-iter |#
+#|     (* counter product) |#
+#|     (+ counter 1) |#
+#|     max-count)) |#
 #| -> global |#
 
 #| B |#
 #| -> |# 
-#| (lambda (n) (fact-iter 1 1 n)) |#
+#| parameters: n |#
+#| body: |#
+#| (fact-iter 1 1 n) |#
 #| -> global |#
 
 #| E1 |#
@@ -182,8 +186,9 @@
 
 #| A |#
 #| -> |# 
-#| (lambda (initial-amount) |#
-#|   (let ((balance initial-amount))) |#
+#| parameters: initial-amount |#
+#| body: |#
+#| (let ((balance initial-amount)) |#
 #|   (lambda (amount) |#
 #|     (if (>= balance amount) |#
 #|       (begin |#
@@ -221,12 +226,13 @@
 
 #| B |#
 #| -> |# 
-#| (lambda (amount) |#
-#|   (if (>= balance amount) |#
-#|     (begin |#
-#|       (set! balance (- balance amount)) |#
-#|       balance) |#
-#|     "Insufficient funds")) |#
+#| parameters: amount |#
+#| body: |#
+#| (if (>= balance amount) |#
+#|   (begin |#
+#|     (set! balance (- balance amount)) |#
+#|     balance) |#
+#|   "Insufficient funds") |#
 #| -> E2 |#
 
 #| E3 |#
@@ -274,12 +280,13 @@
 
 #| C |#
 #| -> |# 
-#| (lambda (amount) |#
-#|   (if (>= balance amount) |#
-#|     (begin |#
-#|       (set! balance (- balance amount)) |#
-#|       balance) |#
-#|     "Insufficient funds")) |#
+#| parameters: amount |#
+#| body: |#
+#| (if (>= balance amount) |#
+#|   (begin |#
+#|     (set! balance (- balance amount)) |#
+#|     balance) |#
+#|   "Insufficient funds") |#
 #| -> E5 |#
 
 #| 3.11 |#
@@ -319,25 +326,26 @@
 
 #| A |#
 #| -> |#
-#| (lambda (balance) |#
-#|   (define (withdraw amount) |#
-#|     (if (>= balance amount) |#
-#|       (begin |#
-#|         (set! balance (- balance amount)) |#
-#|         balance) |#
-#|       "Insufficient funds")) |#
-#|   (define (deposit amount) |#
-#|     (set! balance (+ balance amount)) |#
-#|     balance) |#
-#|   (define (dispatch m) |#
-#|     (cond |#
-#|       ((eq? m 'withdraw) withdraw) |#
-#|       ((eq? m 'deposit) deposit) |#
-#|       (else |#
-#|         (error |#
-#|           "Unknown request -- MAKE-ACCOUNT" |#
-#|           m)))) |#
-#|   dispatch) |#
+#| parameters: balance |#
+#| body: |#
+#| (define (withdraw amount) |#
+#|   (if (>= balance amount) |#
+#|     (begin |#
+#|       (set! balance (- balance amount)) |#
+#|       balance) |#
+#|     "Insufficient funds")) |#
+#| (define (deposit amount) |#
+#|   (set! balance (+ balance amount)) |#
+#|   balance) |#
+#| (define (dispatch m) |#
+#|   (cond |#
+#|     ((eq? m 'withdraw) withdraw) |#
+#|     ((eq? m 'deposit) deposit) |#
+#|     (else |#
+#|       (error |#
+#|         "Unknown request -- MAKE-ACCOUNT" |#
+#|         m)))) |#
+#| dispatch |#
 #| -> global |#
 
 #| E1 |#
@@ -351,31 +359,34 @@
 
 #| B |#
 #| -> |#
-#| (lambda (amount) |#
-#|   (if (>= balance amount) |#
-#|     (begin |#
-#|       (set! balance (- balance amount)) |#
-#|       balance) |#
-#|     "Insufficient funds")) |#
+#| parameters: amount |#
+#| body: |#
+#| (if (>= balance amount) |#
+#|   (begin |#
+#|     (set! balance (- balance amount)) |#
+#|     balance) |#
+#|   "Insufficient funds") |#
 #| -> E1 |#
 
 #| C |#
 #| -> |#
-#| (lambda (amount) |#
-#|   (set! balance (+ balance amount)) |#
-#|   balance) |#
+#| parameters: amount |#
+#| body: |#
+#| (set! balance (+ balance amount)) |#
+#| balance |#
 #| -> E1 |#
 
 #| D |#
 #| -> |#
-#| (lambda (m) |#
-#|   (cond |#
-#|     ((eq? m 'withdraw) withdraw) |#
-#|     ((eq? m 'deposit) deposit) |#
-#|     (else |#
-#|       (error |#
-#|         "Unknown request -- MAKE-ACCOUNT" |#
-#|         m)))) |#
+#| parameters: m |#
+#| body: |#
+#| (cond |#
+#|   ((eq? m 'withdraw) withdraw) |#
+#|   ((eq? m 'deposit) deposit) |#
+#|   (else |#
+#|     (error |#
+#|       "Unknown request -- MAKE-ACCOUNT" |#
+#|       m))) |#
 #| -> E1 |#
 
 #| E2 |#
@@ -454,29 +465,32 @@
 
 #| E |#
 #| -> |#
-#| (lambda (amount) |#
-#|   (if (>= balance amount) |#
-#|     (begin |#
-#|       (set! balance (- balance amount)) |#
-#|       balance) |#
-#|     "Insufficient funds")) |#
+#| parameters: amount |#
+#| body: |#
+#| (if (>= balance amount) |#
+#|   (begin |#
+#|     (set! balance (- balance amount)) |#
+#|     balance) |#
+#|   "Insufficient funds") |#
 #| -> E6 |#
 
 #| F |#
 #| -> |#
-#| (lambda (amount) |#
-#|   (set! balance (+ balance amount)) |#
-#|   balance) |#
+#| parameters: amount |#
+#| body: |#
+#| (set! balance (+ balance amount)) |#
+#| balance |#
 #| -> E6 |#
 
 #| G |#
 #| -> |#
-#| (lambda (m) |#
-#|   (cond |#
-#|     ((eq? m 'withdraw) withdraw) |#
-#|     ((eq? m 'deposit) deposit) |#
-#|     (else |#
-#|       (error |#
-#|         "Unknown request -- MAKE-ACCOUNT" |#
-#|         m)))) |#
+#| parameters: m |#
+#| body: |#
+#| (cond |#
+#|   ((eq? m 'withdraw) withdraw) |#
+#|   ((eq? m 'deposit) deposit) |#
+#|   (else |#
+#|     (error |#
+#|       "Unknown request -- MAKE-ACCOUNT" |#
+#|       m))) |#
 #| -> E6 |#

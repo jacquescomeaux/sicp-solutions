@@ -273,3 +273,497 @@
         ((eq? m 'delete-queue!) delete-queue!)
         (error "Unknown request -- MAKE-QUEUE" m)))
   dispatch))
+
+(#%provide lookup)
+(define (lookup key table)
+  (let
+    ((record (assoc key (cdr table))))
+    (if record
+      (cdr record)
+      false)))
+
+(#%provide assoc)
+(define (assoc key records)
+  (cond
+    ((null? records) false)
+    ((equal? key (caar records))
+     (car records))
+    (else (assoc key (cdr records)))))
+
+(#%provide insert!)
+(define (insert! key value table)
+  (let
+    ((record (assoc key (cdr table))))
+    (if record
+      (set-cdr! record value)
+      (set-cdr!
+        table
+        (cons (cons key value) (cdr table)))))
+  'ok)
+
+(#%provide make-table)
+(define (make-table)
+  (list '*table*))
+
+(#%provide lookup-2)
+(define (lookup-2 key-1 key-2 table)
+  (let
+    ((subtable (assoc key-1 (cdr table))))
+    (if subtable
+      (let
+        ((record (assoc key-2 (cdr subtable))))
+        (if record
+          (cdr record)
+          false))
+      false)))
+
+(#%provide insert!-2)
+(define (insert!-2 key-1 key-2 value table)
+  (let
+    ((subtable (assoc key-1 (cdr table))))
+    (if subtable
+      (let
+        ((record (assoc key-2 (cdr subtable))))
+        (if record
+          (set-cdr! record value)
+          (set-cdr!
+            subtable
+            (cons (cons key-2 value) (cdr subtable)))))
+      (set-cdr!
+        table
+        (cons
+          (list key-1 (cons key-2 value))
+          (cdr table)))))
+  'ok)
+
+(#%provide make-table-object)
+(define (make-table-object)
+  (let
+    ((local-table (list '*table*)))
+    (define (lookup key-1 key-2)
+      (let
+        ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+          (let
+            ((record (assoc key-2 (cdr subtable))))
+            (if record
+              (cdr record)
+              false))
+          false)))
+    (define (insert! key-1 key-2 value)
+      (let
+        ((subtable (assoc key-1 (cdr local-table))))
+        (if subtable
+          (let
+            ((record (assoc key-2 (cdr subtable))))
+            (if record
+              (set-cdr! record value)
+              (set-cdr!
+                subtable
+                (cons
+                  (cons key-2 value)
+                  (cdr subtable)))))
+          (set-cdr!
+            local-table
+            (cons
+              (list key-1 (cons key-2 value))
+              (cdr local-table)))))
+      'ok)
+    (define (dispatch m)
+      (cond
+        ((eq? m 'lookup-proc) lookup)
+        ((eq? m 'insert-proc!) insert!)
+        (else (error "Unknown operation -- TABLE" m))))
+    dispatch))
+
+(define operation-table (make-table-object))
+(define get (operation-table 'lookup-proc))
+(define put (operation-table 'insert-proc!))
+
+#| 3.24 |#
+
+(#%provide make-table-object-)
+(define (make-table-object- same-key?)
+  (define (assoc key records)
+    (cond
+      ((null? records) false)
+      ((same-key? key (caar records))
+       (car records))
+      (else (assoc key (cdr records)))))
+  (let
+    ((local-table (list '*table*)))
+    (define (lookup key)
+      (let
+        ((record (assoc key (cdr local-table))))
+        (if record
+          (cdr record)
+          false)))
+    (define (insert! key value)
+      (let
+        ((record (assoc key (cdr local-table))))
+        (if record
+          (set-cdr! record value)
+          (set-cdr!
+            local-table
+            (cons
+              (cons key value)
+              (cdr local-table)))))
+      'ok)
+    (define (dispatch m)
+      (cond
+        ((eq? m 'lookup-proc) lookup)
+        ((eq? m 'insert-proc!) insert!)
+        (else (error "Unknown operation -- TABLE" m))))
+    dispatch))
+
+#| 3.25 |#
+
+(#%provide lookup-many)
+(define (lookup-many keys table)
+  (if (null? keys)
+    (cdr table)
+    (let
+      ((subtable (assoc (car keys) (cdr table))))
+      (if subtable
+        (lookup-many (cdr keys) subtable)
+        false))))
+
+(#%provide insert-many!)
+(define (insert-many! keys value table)
+  (if (null? keys)
+    (set-cdr! table value)
+    (let
+      ((subtable (assoc (car keys) (cdr table))))
+      (if subtable
+        (insert-many! (cdr keys) value subtable)
+        (let
+          ((subtable (list (car keys))))
+          (insert-many! (cdr keys) value subtable)
+          (set-cdr! table (cons subtable (cdr table))))))))
+
+#| 3.27 |#
+
+(#%provide fib)
+(define (fib n)
+  (cond
+    ((= n 0) 0)
+    ((= n 1) 1)
+    (else
+      (+
+        (fib (- n 1))
+        (fib (- n 2))))))
+
+(#%provide memoize)
+(define (memoize f)
+  (let
+    ((table (make-table)))
+    (lambda (x)
+      (let
+        ((previously-computed-result (lookup x table)))
+        (or
+          previously-computed-result
+          (let
+            ((result (f x)))
+            (insert! x result table)
+            result))))))
+
+(#%provide memo-fib)
+(define memo-fib
+  (memoize
+    (lambda (n)
+      (cond
+        ((= n 0) 0)
+        ((= n 1) 1)
+        (else
+          (+
+            (memo-fib (- n 1))
+            (memo-fib (- n 2))))))))
+
+(#%provide slow-memo-fib)
+(define slow-memo-fib (memoize fib))
+
+;; slow-memo-fib only provides speed up on the second invocation
+;; the recursive calls don't take advantage of the table
+
+#| global |#
+#| -------------------- |#
+#| | lookup: ...      | |#
+#| | insert!: ...     | |#
+#| | make-table: -> A | |#
+#| | memoize: -> B    | |#
+#| | memo-fib: -> D   | |#
+#| -------------------- |#
+
+#| A |#
+#| -> |#
+#| parameters: |#
+#| body: |#
+#| (list '*table*) |#
+#| -> global |#
+
+#| B |#
+#| -> |#
+#| parameters: f |#
+#| body: |#
+#| (let |#
+#|   ((table (make-table))) |#
+#|   (lambda (x) |#
+#|     (let |#
+#|       ((previously-computed-result (lookup x table))) |#
+#|       (or |#
+#|         previously-computed-result |#
+#|         (let |#
+#|           ((result (f x))) |#
+#|           (insert! x result table) |#
+#|           result))))) |#
+#| -> global |#
+
+#| E1 |#
+#| ----------- |#
+#| | f: -> C | |#
+#| ----------- |#
+#| -> global |#
+
+#| C |#
+#| -> |#
+#| parameters: n |#
+#| body: |#
+#| (cond |#
+#|   ((= n 0) 0) |#
+#|   ((= n 1) 1) |#
+#|   (else |#
+#|     (+ |#
+#|       (memo-fib (- n 1)) |#
+#|       (memo-fib (- n 2))))) |#
+#| -> global |#
+
+#| E2 |#
+#| --------------- |#
+#| | table: -> T | |#
+#| --------------- |#
+#| -> E1 |#
+
+#| T |#
+#| -> |#
+#| '(*table* (0 . 0) (1 . 1) (2 . 1) (3 . 2)) |#
+
+#| D |#
+#| -> |#
+#| parameters: x |#
+#| body: |#
+#| (let |#
+#|   ((previously-computed-result (lookup x table))) |#
+#|   (or |#
+#|     previously-computed-result |#
+#|     (let |#
+#|       ((result (f x))) |#
+#|       (insert! x result table) |#
+#|       result))) |#
+#| -> E2 |#
+
+#| E3 |#
+#| -------- |#
+#| | x: 3 | |#
+#| -------- |#
+#| -> E2 |#
+
+#| E |#
+#| -> |#
+#| parameters: previously-computed-result |#
+#| body: |#
+#| (or |#
+#|   previously-computed-result |#
+#|   (let |#
+#|     ((result (f x))) |#
+#|     (insert! x result table) |#
+#|     result)) |#
+#| -> E3 |#
+
+#| E4 |#
+#| ------------------------------------- |#
+#| | previously-computed-result: false | |#
+#| ------------------------------------- |#
+#| -> E3 |#
+
+#| F |#
+#| -> |#
+#| parameters: result |#
+#| body: |#
+#| (insert! x result table) |#
+#| result |#
+#| -> E4 |#
+
+#| E5 |#
+#| -------- |#
+#| | n: 3 | |#
+#| -------- |#
+#| -> global |#
+
+#| E6 |#
+#| -------- |#
+#| | x: 2 | |#
+#| -------- |#
+#| -> E2 |#
+
+#| G |#
+#| -> |#
+#| parameters: previously-computed-result |#
+#| body: |#
+#| (or |#
+#|   previously-computed-result |#
+#|   (let |#
+#|     ((result (f x))) |#
+#|     (insert! x result table) |#
+#|     result)) |#
+#| -> E6 |#
+
+#| E7 |#
+#| ------------------------------------- |#
+#| | previously-computed-result: false | |#
+#| ------------------------------------- |#
+#| -> E6 |#
+
+#| H |#
+#| -> |#
+#| parameters: result |#
+#| body: |#
+#| (insert! x result table) |#
+#| result |#
+#| -> E7 |#
+
+#| E8 |#
+#| -------- |#
+#| | n: 2 | |#
+#| -------- |#
+#| -> global |#
+
+#| E9 |#
+#| -------- |#
+#| | x: 1 | |#
+#| -------- |#
+#| -> E2 |#
+
+#| I |#
+#| -> |#
+#| parameters: previously-computed-result |#
+#| body: |#
+#| (or |#
+#|   previously-computed-result |#
+#|   (let |#
+#|     ((result (f x))) |#
+#|     (insert! x result table) |#
+#|     result)) |#
+#| -> E2 |#
+
+#| E10 |#
+#| ------------------------------------- |#
+#| | previously-computed-result: false | |#
+#| ------------------------------------- |#
+#| -> E9 |#
+
+#| J |#
+#| -> |#
+#| parameters: result |#
+#| body: |#
+#| (insert! x result table) |#
+#| result |#
+#| -> E10 |#
+
+#| E11 |#
+#| -------- |#
+#| | n: 1 | |#
+#| -------- |#
+#| -> global |#
+
+#| E12 |#
+#| ------------- |#
+#| | result: 1 | |#
+#| ------------- |#
+#| -> E10 |#
+
+#| E13 |#
+#| -------- |#
+#| | x: 0 | |#
+#| -------- |#
+#| -> E2 |#
+
+#| K |#
+#| -> |#
+#| parameters: previously-computed-result |#
+#| body: |#
+#| (or |#
+#|   previously-computed-result |#
+#|   (let |#
+#|     ((result (f x))) |#
+#|     (insert! x result table) |#
+#|     result)) |#
+#| -> E2 |#
+
+#| E14 |#
+#| ------------------------------------- |#
+#| | previously-computed-result: false | |#
+#| ------------------------------------- |#
+#| -> E13 |#
+
+#| L |#
+#| -> |#
+#| parameters: result |#
+#| body: |#
+#| (insert! x result table) |#
+#| result |#
+#| -> E14 |#
+
+#| E15 |#
+#| -------- |#
+#| | n: 0 | |#
+#| -------- |#
+#| -> global |#
+
+#| E16 |#
+#| ------------- |#
+#| | result: 0 | |#
+#| ------------- |#
+#| -> E14 |#
+
+#| E17 |#
+#| ------------- |#
+#| | result: 1 | |#
+#| ------------- |#
+#| -> E7 |#
+
+#| E18 |#
+#| -------- |#
+#| | x: 1 | |#
+#| -------- |#
+#| -> E2 |#
+
+#| M |#
+#| -> |#
+#| parameters: previously-computed-result |#
+#| body: |#
+#| (or |#
+#|   previously-computed-result |#
+#|   (let ((result (f x))) |#
+#|     (insert! x result table) |#
+#|     result)) |#
+#| -> E18 |#
+
+#| E19 |#
+#| --------------------------------- |#
+#| | previously-computed-result: 1 | |#
+#| --------------------------------- |#
+#| -> E18 |#
+
+#| E20 |#
+#| ------------- |#
+#| | result: 2 | |#
+#| ------------- |#
+#| -> E4 |#
+
+
+
+
+
+
+
+;; constraints
