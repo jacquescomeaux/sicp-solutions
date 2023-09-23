@@ -760,10 +760,262 @@
 #| ------------- |#
 #| -> E4 |#
 
+(#%provide make-time-segment)
+(define (make-time-segment time queue)
+  (cons time queue))
 
+(#%provide segment-time)
+(define (segment-time s) (car s))
 
+(#%provide segment-queue)
+(define (segment-queue s) (cdr s))
 
+(#%provide make-agenda)
+(define (make-agenda) (list 0))
 
+(#%provide current-time)
+(define (current-time agenda) (car agenda))
 
+(#%provide set-current-time!)
+(define (set-current-time! agenda time)
+  (set-car! agenda time))
+
+(#%provide segments)
+(define (segments agenda) (cdr agenda))
+
+(#%provide set-segments!)
+(define (set-segments! agenda segments)
+  (set-cdr! agenda segments))
+
+(#%provide first-segment)
+(define (first-segment agenda)
+  (car (segments agenda)))
+
+(#%provide rest-segments)
+(define (rest-segments agenda)
+  (cdr (segments agenda)))
+
+(#%provide empty-agenda?)
+(define (empty-agenda? agenda)
+  (null? (segments agenda)))
+
+(#%provide add-to-agenda!)
+(define (add-to-agenda! time action agenda)
+  (define (belongs-before? segments)
+    (or
+      (null? segments)
+      (< time (segment-time (car segments)))))
+  (define (make-new-time-segment time action)
+    (let ((q (make-queue)))
+      (insert-queue! q action)
+      (make-time-segment time q)))
+  (define (add-to-segments! segments)
+    (if (= (segment-time (car segments)) time)
+      (insert-queue!
+        (segment-queue (car segments))
+        action)
+      (let
+        ((rest (cdr segments)))
+        (if (belongs-before? rest)
+          (set-cdr!
+            segments
+            (cons
+              (make-new-time-segment time action)
+              (cdr segments)))
+          (add-to-segments! rest)))))
+  (let
+    ((segments (segments agenda)))
+    (if
+      (belongs-before? segments)
+      (set-segments!
+        agenda
+        (cons
+          (make-new-time-segment time action)
+          segments))
+      (add-to-segments! segments))))
+
+(#%provide remove-first-agenda-item!)
+(define (remove-first-agenda-item! agenda)
+  (let ((q (segment-queue (first-segment agenda))))
+    (delete-queue! q)
+    (if (empty-queue? q)
+      (set-segments! agenda (rest-segments agenda)))))
+
+(#%provide first-agenda-item)
+(define (first-agenda-item agenda)
+  (if (empty-agenda? agenda)
+    (error "Agenda is empty -- FIRST-AGENDA-ITEM")
+    (let ((first-seg (first-segment agenda)))
+      (set-current-time! agenda (segment-time first-seg))
+      (front-queue (segment-queue first-seg)))))
+
+(define the-agenda (make-agenda))
+(define inverter-delay 2)
+(define and-gate-delay 3)
+(define or-gate-delay 5)
+
+(#%provide propagate)
+(define (propagate)
+  (if (empty-agenda? the-agenda)
+    'done
+    (let ((first-item (first-agenda-item the-agenda)))
+      (first-item)
+      (remove-first-agenda-item! the-agenda)
+      (propagate))))
+
+(define (after-delay delay action)
+  (add-to-agenda!
+    (+ delay (current-time the-agenda))
+    action
+    the-agenda))
+
+(define (call-each procedures)
+  (if (null? procedures)
+    'done
+    (begin
+      ((car procedures))
+      (call-each (cdr procedures)))))
+
+(#%provide make-wire)
+(define (make-wire)
+  (let
+    ((signal-value 0)
+     (action-procedures '()))
+    (define (set-my-signal! new-value)
+      (if (not (= signal-value new-value))
+        (begin
+          (set! signal-value new-value)
+          (call-each action-procedures))
+        'done))
+    (define (accept-action-procedure! proc)
+      (set! action-procedures (cons proc action-procedures))
+      (proc))
+    (define (dispatch m)
+      (cond
+        ((eq? m 'get-signal) signal-value)
+        ((eq? m 'set-signal!) set-my-signal!)
+        ((eq? m 'add-action!) accept-action-procedure!)
+        (else (error "Unknown operation -- WIRE" m))))
+    dispatch))
+
+(#%provide get-signal)
+(define (get-signal wire)
+  (wire 'get-signal))
+
+(#%provide set-signal!)
+(define (set-signal! wire new-value)
+  ((wire 'set-signal!) new-value))
+
+(#%provide add-action!)
+(define (add-action! wire action-procedure)
+  ((wire 'add-action!) action-procedure))
+
+(define (logical-not s)
+  (cond
+    ((= s 0) 1)
+    (else 0)))
+
+(#%provide inverter)
+(define (inverter input output)
+  (define (invert-input)
+    (let ((new-value (logical-not (get-signal input))))
+      (after-delay
+        inverter-delay
+        (lambda ()
+          (set-signal! output new-value)))))
+  (add-action! input invert-input)
+  'ok)
+
+(define (logical-and a b)
+  (cond
+    ((= a 0) 1)
+    (else b)))
+
+(#%provide and-gate)
+(define (and-gate a1 a2 output)
+  (define (and-action-procedure)
+    (let
+      ((new-value
+        (logical-and
+          (get-signal a1)
+          (get-signal a2))))
+      (after-delay
+        and-gate-delay
+        (lambda ()
+          (set-signal! output new-value)))))
+  (add-action! a1 and-action-procedure)
+  (add-action! a2 and-action-procedure)
+  'ok)
+
+#| 3.28 |#
+
+(define (logical-or a b)
+  (cond
+    ((= a 0) b)
+    (else 1)))
+
+(#%provide or-gate)
+(define (or-gate a1 a2 output)
+  (define (or-action-procedure)
+    (let
+      ((new-value
+        (logical-or
+          (get-signal a1)
+          (get-signal a2))))
+      (after-delay
+        or-gate-delay
+        (lambda ()
+          (set-signal! output new-value)))))
+  (add-action! a1 or-action-procedure)
+  (add-action! a2 or-action-procedure)
+  'ok)
+
+(#%provide half-adder)
+(define (half-adder a b s c)
+  (let
+    ((d (make-wire))
+     (e (make-wire)))
+    (or-gate a b d)
+    (and-gate a b c)
+    (inverter c e)
+    (and-gate d e s)
+    'ok))
+
+(#%provide full-adder)
+(define (full-adder a b c-in sum c-out)
+  (let
+    ((s (make-wire))
+     (c1 (make-wire))
+     (c2 (make-wire)))
+    (half-adder b c-in s c1)
+    (half-adder a s sum c2)
+    (or-gate c1 c2 c-out)
+    'ok))
+
+#| 3.29 |#
+
+(#%provide or-gate-)
+(define (or-gate- a1 a2 output)
+  (let
+    ((na1 (make-wire))
+     (na2 (make-wire))
+     (nout (make-wire)))
+    (inverter a1 na1)
+    (inverter a2 na2)
+    (and-gate na1 na2 nout)
+    (inverter nout na2)
+    'ok))
+
+(#%provide probe)
+(define (probe name wire)
+  (add-action!
+    wire
+    (lambda ()
+      (newline)
+      (display name)
+      (display " ")
+      (display (current-time the-agenda))
+      (display "  New-value = ")
+      (display (get-signal wire)))))
 
 ;; constraints
