@@ -32,6 +32,7 @@
     ((or? exp) (eval-or (or-disjuncts exp) env))
     ((let? exp) (eval (let->combination exp) env))
     ((let*? exp) (eval (let*->nested-lets exp) env))
+    ((letrec? exp) (eval (letrec->let exp) env))
     ((application? exp)
      (apply-
        (eval (operator exp) env)
@@ -137,6 +138,7 @@
     (cadr exp)
     (caadr exp)))
 
+(#%provide definition-value)
 (define (definition-value exp)
   (if (symbol? (cadr exp))
     (caddr exp)
@@ -148,6 +150,7 @@
 
 (define (lambda-parameters exp) (cadr exp))
 
+(#%provide lambda-body)
 (define (lambda-body exp) (cddr exp))
 
 (define (make-lambda parameters body)
@@ -344,7 +347,7 @@
     (if (null? (cdr (let-body-extended exp)))
       (car (let-body-extended exp))
       (cons 'begin (let-body-extended exp)))
-    (list
+    (cons
       (cons
         'lambda
         (cons
@@ -448,15 +451,19 @@
   (eq? x false))
 
 (define (make-procedure parameters body env)
+  #| (list 'procedure parameters (scan-out-defines body) env)) |#
   (list 'procedure parameters body env))
 
 (define (compound-procedure? p)
   (tagged-list? p 'procedure))
 
+(#%provide procedure-parameters)
 (define (procedure-parameters p) (cadr p))
 
+(#%provide procedure-body)
 (define (procedure-body p) (caddr p))
 
+(#%provide procedure-environment)
 (define (procedure-environment p) (cadddr p))
 
 (#%provide enclosing-environment)
@@ -499,7 +506,10 @@
         ((null? vars)
          (env-loop (enclosing-environment env)))
         ((eq? var (car vars))
-         (car vals))
+         #| (car vals)) |#
+         (if (eq? (car vals) '*unassigned*)
+           (error "Unassigned variable" var)
+           (car vals)))
         (else (scan (cdr vars) (cdr vals)))))
     (if (eq? env the-empty-environment)
       (error "Unbound variable" var)
@@ -737,17 +747,286 @@
 
 #| 4.15 |#
 
+(define (run-forever) (run-forever))
+
+#| (define (try p) |#
+#|   (if (halts? p p) |#
+#|     (run-forever) |#
+#|     'halted)) |#
+
+#| (try try) |#
+
 ;; Internal Definitions
 
+#| (define (f x) |#
+#|   (define (even? n) |#
+#|     (if (= n 0) |#
+#|       true |#
+#|       (odd? (- n 1)))) |#
+#|   (define (odd? n) |#
+#|     (if (= n 0) |#
+#|       false |#
+#|       (even? (- n 1)))) |#
+#|   (even? 6)) |#
+
 #| 4.16 |#
-#| 4.17 |#
-#| 4.18 |#
-#| 4.19 |#
+
+(#%provide lookup-variable-value---)
+(define (lookup-variable-value--- var env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond
+        ((null? vars)
+         (env-loop (enclosing-environment env)))
+        ((eq? var (car vars))
+         (if (eq? (car vals) '*unassigned*)
+           (error "Unassigned variable" var)
+           (car vals)))
+        (else (scan (cdr vars) (cdr vals)))))
+    (if (eq? env the-empty-environment)
+      (error "Unbound variable" var)
+      (let ((frame (first-frame env)))
+        (scan
+          (frame-variables frame)
+          (frame-values frame)))))
+  (env-loop env))
+
+(define (filter predicate xs)
+  (if (null? xs)
+    '()
+    (if (predicate (car xs))
+      (cons (car xs) (filter predicate (cdr xs)))
+      (filter predicate (cdr xs)))))
+
+(#%provide scan-out-defines)
+(define (scan-out-defines body)
+  (let
+    ((not-defs (filter (lambda (exp) (not (definition? exp))) body))
+     (defs (filter definition? body)))
+    (if (null? defs)
+      body
+      (list
+        (make-let
+          (map
+            (lambda (def)
+              (list (definition-variable def) ''*unassigned*))
+            defs)
+          (append
+            (map
+              (lambda (def)
+                (list
+                  'set!
+                  (definition-variable def)
+                  (definition-value def)))
+              defs)
+            not-defs))))))
+
 #| 4.20 |#
+
+(#%provide letrec?)
+(define (letrec? exp) (tagged-list? exp 'letrec))
+
+(#%provide letrec->let)
+(define (letrec->let exp)
+  (make-let
+    (map
+      (lambda (bind)
+        (list (binding-var bind) ''*unassigned*))
+      (let-bindings exp))
+    (append
+      (map
+        (lambda (bind)
+          (list
+            'set!
+            (binding-var bind)
+            (binding-exp bind)))
+        (let-bindings exp))
+      (let-body exp))))
+
 #| 4.21 |#
+
+(#%provide factorial)
+(define factorial
+  (lambda (n)
+    ((lambda (fact)
+       (fact fact n))
+     (lambda (ft k)
+       (if (= k 1)
+         1
+         (* k (ft ft (- k 1))))))))
+
+(#%provide qfactorial)
+(define qfactorial
+  '(lambda (n)
+    ((lambda (fact)
+       (fact fact n))
+     (lambda (ft k)
+       (if (= k 1)
+         1
+         (* k (ft ft (- k 1))))))))
+
+(#%provide fibonacci)
+(define fibonacci
+  (lambda (n)
+    ((lambda (fib) (fib fib 1 0 n))
+     (lambda (ft a b k)
+       (if (= k 0)
+         b
+         (ft ft (+ a b) a (- k 1)))))))
+
+(#%provide qfibonacci)
+(define qfibonacci
+  '(lambda (n)
+    ((lambda (fib) (fib fib 1 0 n))
+     (lambda (ft a b k)
+       (if (= k 0)
+         b
+         (ft ft (+ a b) a (- k 1)))))))
+
+(#%provide even-odd)
+(define (even-odd x)
+  ((lambda (even? odd?)
+     (even? even? odd? x))
+   (lambda (ev? od? n)
+     (if (= n 0) true (od? ev? od? (- n 1))))
+   (lambda (ev? od? n)
+     (if (= n 0) false (ev? ev? od? (- n 1))))))
 
 ;; Separating Syntactic Analysis from Execution
 
+(#%provide eval-)
+(define (eval- exp env)
+  ((analyze exp) env))
+
+(#%provide analyze)
+(define (analyze exp)
+  (cond
+    ((self-evaluating? exp)
+     (analyze-self-evaluating exp))
+    ((quoted? exp) (analyze-quoted exp))
+    ((variable? exp) (analyze-variable exp))
+    ((assignment? exp) (analyze-assignment exp))
+    ((definition? exp) (analyze-definition exp))
+    ((if? exp) (analyze-if exp))
+    ((lambda? exp) (analyze-lambda exp))
+    ((begin? exp) (analyze-sequence (begin-actions exp)))
+    ((cond? exp) (analyze (cond->if exp)))
+    ((let? exp) (analyze (let->combination exp)))
+    ((application? exp) (analyze-application exp))
+    (else
+      (error "Unknown expression type -- ANALYZE" exp))))
+
+(define (analyze-self-evaluating exp)
+  (lambda (env) exp))
+
+(define (analyze-quoted exp)
+  (let ((qval (text-of-quotation exp)))
+    (lambda (env) qval)))
+
+(define (analyze-variable exp)
+  (lambda (env) (lookup-variable-value exp env)))
+
+(define (analyze-assignment exp)
+  (let
+    ((var (assignment-variable exp))
+     (vproc (analyze (assignment-value exp))))
+    (lambda (env)
+      (set-variable-value! var (vproc env) env)
+      'ok)))
+
+(define (analyze-definition exp)
+  (let
+    ((var (definition-variable exp))
+     (vproc (analyze (definition-value exp))))
+    (lambda (env)
+      (define-variable! var (vproc env) env)
+      'ok)))
+
+(define (analyze-if exp)
+  (let
+    ((pproc (analyze (if-predicate exp)))
+     (cproc (analyze (if-consequent exp)))
+     (aproc (analyze (if-alternative exp))))
+    (lambda (env)
+      (if (true? (pproc env))
+        (cproc env)
+        (aproc env)))))
+
+(#%provide analyze-lambda)
+(define (analyze-lambda exp)
+  (let
+    ((vars (lambda-parameters exp))
+     (bproc (analyze-sequence (lambda-body exp))))
+    (lambda (env) (make-procedure vars bproc env))))
+
+(define (analyze-sequence exps)
+  (define (sequentially proc1 proc2)
+    (lambda (env) (proc1 env) (proc2 env)))
+  (define (loop first-proc rest-procs)
+    (if (null? rest-procs)
+      first-proc
+      (loop
+        (sequentially first-proc (car rest-procs))
+        (cdr rest-procs))))
+  (let
+    ((procs (map analyze exps)))
+    (if (null? procs)
+      (error "Empty sequence -- ANALYZE"))
+    (loop (car procs) (cdr procs))))
+
+(define (analyze-application exp)
+  (let
+    ((fproc (analyze (operator exp)))
+     (aprocs (map analyze (operands exp))))
+    (lambda (env)
+      (execute-application
+        (fproc env)
+        (map
+          (lambda (aproc) (aproc env))
+          aprocs)))))
+
+(define (execute-application proc args)
+  (cond
+    ((primitive-procedure? proc)
+     (apply-primitive-procedure proc args))
+    ((compound-procedure? proc)
+     ((procedure-body proc)
+      (extend-environment
+        (procedure-parameters proc)
+        args
+        (procedure-environment proc))))
+    (else
+      (error
+        "Unknown procedure type -- EXECUTE-APPLICATION"
+        proc))))
+
 #| 4.22 |#
+
+#| ((let? exp) (analyze (let->combination exp))) |#
+
 #| 4.23 |#
+
+(define (analyze-sequence-bad exps)
+  (define (execute-sequence procs env)
+    (cond
+      ((null? (cdr procs)) ((car procs) env))
+      (else
+        ((car procs) env)
+        (execute-sequence (cdr procs) env))))
+  (let ((procs (map analyze exps)))
+    (if (null? procs)
+      (error "Empty sequence -- ANALYZE"))
+    (lambda (env) (execute-sequence procs env))))
+
 #| 4.24 |#
+
+(#%provide timed)
+(define (timed f)
+  (lambda args
+    (let
+      ((start (runtime))
+       (result (apply f args))
+       (end (runtime)))
+      (display (- end start))
+      (newline)
+      result)))
