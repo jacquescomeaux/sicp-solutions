@@ -114,19 +114,13 @@
 
 (define (make-assertion x) (list 'assert! x))
 
-(#%provide q-defs)
-(define q-defs
-  (map
-    make-assertion
-    (append personel-defs rule-defs)))
-
 #| 4.57 |#
 
 (define can-replace-def
   '(rule (can-replace ?p1 ?p2)
     (and
       (job ?p1 ?p1-job)
-      (job ?p2 ?p2-job) 
+      (job ?p2 ?p2-job)
       (or
         (same ?p1-job ?p2-job)
         (can-do-job ?p1-job ?p2-job))
@@ -151,7 +145,7 @@
       (not
         (and
           (supervisor ?x ?sup)
-          (job ?sup (?div . ?rest-2))))))
+          (job ?sup (?div . ?rest-2)))))))
 
 #| 4.59 |#
 
@@ -176,24 +170,103 @@
 (define meeting-time-query
   '(meeting-time (Hacker Alyssa P) (Wednesday . ?time)))
 
-(rule (append-to-form () ?y ?y))
-(rule (append-to-form () (?u . ?v) ?y (?u . ?z))
-  (append-to-form ?v ?y ?z))
+(define append-rules
+  '((rule (append-to-form () ?y ?y))
+    (rule (append-to-form (?u . ?v) ?y (?u . ?z))
+      (append-to-form ?v ?y ?z))))
+
+(define (flatten lists)
+  (if (null? lists)
+    '()
+    (append (car lists) (flatten (cdr lists)))))
 
 #| 4.61 |#
+
+(define next-to-defs
+  '((rule (?x next-to ?y in (?x ?y . ?u)))
+    (rule (?x next-to ?y in (?v . ?z))
+      (?x next-to ?y in ?z))))
+
 #| 4.62 |#
+
+(define last-pair-defs
+  '((rule (last-pair (?x) ?x))
+    (rule (last-pair (?v . ?z) ?x)
+      (last-pair ?z ?x))))
+
 #| 4.63 |#
+
+(define genealogy-defs
+  '((son Adam Cain)
+    (son Cain Enoch)
+    (son Enoch Irad)
+    (son Irad Mehujael)
+    (son Mehujael Methusael)
+    (son Methusael Lamech)
+    (wife Lamech Ada)
+    (son Ada Jabal)
+    (son Ada Jubal)
+    (rule (son-of ?f ?s)
+      (or
+        (son ?f ?s)
+        (and
+          (wife ?f ?w)
+          (son ?w ?s))))
+    (rule (grandson ?g ?s)
+      (and
+        (son-of ?f ?s)
+        (son-of ?g ?f)))))
 
 ;; How the Query System Works
 
 ;; Is Logic Programming Mathematical Logic
 
 #| 4.64 |#
-#| 4.65 |#
-#| 4.66 |#
-#| 4.67 |#
+
+(define outranked-bad-def
+  '(rule (outranked-by ?staff-person ?boss)
+     (or
+       (supervisor ?staff-person ?boss)
+       (and
+         (outranked-by ?middle-manager ?boss)
+         (supervisor ?staff-person ?middle-manager)))))
+
 #| 4.68 |#
+
+(define reverse-rules
+  '((rule (reverse () ()))
+    (rule (reverse (?x . ?xs) ?sxx)
+      (and
+        (reverse ?xs ?sx)
+        (append-to-form ?sx (?x) ?sxx)))))
+
 #| 4.69 |#
+
+(define great-grandson-rules
+  '((rule (end-in-grandson (grandson) grandson))
+    (rule (end-in-grandson (great . ?rel) (?great . ?rel))
+      (end-in-grandson ?rel ?rel-))
+    (rule ((great . ?rel) ?x ?y)
+      (and
+        (son-of ?x ?s)
+        (?rel- ?s ?y)
+        (end-in-grandson ?rel ?rel-)))))
+
+(#%provide q-defs)
+(define q-defs
+  (map
+    make-assertion
+    (flatten
+      (list
+        personel-defs
+        rule-defs
+        append-rules
+        next-to-defs
+        last-pair-defs
+        genealogy-defs
+        reverse-rules
+        great-grandson-rules
+        ))))
 
 ;; Implementing the Query System
 
@@ -208,6 +281,15 @@
     (cons-stream
       (proc (stream-car s))
       (stream-map proc (stream-cdr s)))))
+
+(define (stream-filter pred stream)
+  (cond
+    ((stream-null? stream) the-empty-stream)
+    ((pred (stream-car stream))
+     (cons-stream
+       (stream-car stream)
+       (stream-filter pred (stream-cdr stream))))
+    (else (stream-filter pred (stream-cdr stream)))))
 
 (define (stream-for-each proc s)
   (if (stream-null? s)
@@ -368,7 +450,7 @@
 (put 'or 'qeval disjoin)
 
 (define (negate operands frame-stream)
-  (stream-flatmap
+  (simple-stream-flatmap
     (lambda (frame)
       (if
         (stream-null?
@@ -382,7 +464,7 @@
 (put 'not 'qeval negate)
 
 (define (lisp-value call frame-stream)
-  (stream-flatmap
+  (simple-stream-flatmap
     (lambda (frame)
       (if
         (execute
@@ -409,7 +491,7 @@
 (put 'always-true 'qeval always-true)
 
 (define (find-assertions pattern frame)
-  (stream-flatmap
+  (simple-stream-flatmap
     (lambda (datum)
       (check-an-assertion datum pattern frame))
     (fetch-assertions pattern frame)))
@@ -737,12 +819,61 @@
 
 #| 4.70 |#
 
+#| (define (add-assertion!-bad assertion) |#
+#|   (store-assertion-in-index assertion) |#
+#|   (set! THE-ASSERTIONS |#
+#|     (cons-stream assertion THE-ASSERTION)) |#
+#|   'ok) |#
+
+;; bad because the second argument of cons-stream is delayed
+;; this would form an unwanted cycle
+
 #| 4.71 |#
-#| 4.72 |#
-#| 4.73 |#
+
+(define (simple-query-bad query-pattern frame-stream)
+  (stream-flatmap
+    (lambda (frame)
+      (stream-append
+        (find-assertions query-pattern frame)
+        (apply-rules query-pattern frame)))
+    frame-stream))
+
 #| 4.74 |#
+
+(define (simple-stream-flatmap proc s)
+  (simple-flatten (stream-map proc s)))
+
+(define (simple-flatten stream)
+  (stream-map
+    car
+    (stream-filter (lambda (x) (not (null? x))) stream)))
+
 #| 4.75 |#
-#| 4.76 |#
-#| 4.77 |#
-#| 4.78 |#
-#| 4.79 |#
+
+(define (unique-query exps) (car exps))
+
+(define (stream-singleton? stream)
+  (cond
+    ((null? stream) false)
+    ((null? (stream-cdr stream)) true)
+    (else false)))
+
+(define (uniquely-asserted operands frame-stream)
+  (simple-stream-flatmap
+    (lambda (frame)
+      (let
+        ((result
+         (qeval
+           (unique-query operands)
+           (singleton-stream frame))))
+        (if (stream-singleton? result)
+          result
+          the-empty-stream)))
+    frame-stream))
+
+(put 'unique 'qeval uniquely-asserted)
+
+(define unique-test
+  '(and
+     (supervisor ?x ?y)
+     (unique (supervisor ?x ?anyone))))
