@@ -317,7 +317,7 @@
 
 (define expt-controller
   '(controller
-      (assign (continue (label expt-done)))
+      (assign continue (label expt-done))
     expt-loop
       (test (op =) (reg n) (const 0))
       (branch (label base-case))
