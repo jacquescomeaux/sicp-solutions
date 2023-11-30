@@ -51,12 +51,15 @@
   (let
     ((expt-machine
       (make-machine
-        '(n b val continue)
+        #| '(n b val continue) |#
         (list (list '- -) (list '* *) (list '= =))
         expt-controller)))
     (set-register-contents! expt-machine 'b 5)
     (set-register-contents! expt-machine 'n 4)
+    #| (expt-machine 'trace-on) |#
+    (trace-reg expt-machine 'val 'on)
     (start expt-machine)
+    (expt-machine 'reset-inst-count)
     (get-register-contents expt-machine 'val)))
 
 (#%provide test-expt-iter)
@@ -64,18 +67,20 @@
   (let
     ((expt-machine
       (make-machine
-        '(n b product counter)
+        #| '(n b product counter) |#
         (list (list '- -) (list '* *) (list '= =))
         expt-iter-controller)))
     (set-register-contents! expt-machine 'b 10)
     (set-register-contents! expt-machine 'n 4)
+    (expt-machine 'trace-on)
     (start expt-machine)
+    (expt-machine 'reset-inst-count)
     (get-register-contents expt-machine 'product)))
 
 ;; The Machine Model
 
-(#%provide make-register)
-(define (make-register name)
+(#%provide make-register-)
+(define (make-register- name)
   (let ((contents '*unassigned*))
     (define (dispatch message)
       (cond
@@ -125,30 +130,45 @@
   ((stack 'push) value))
 
 (define (make-instruction text)
-  (cons text '()))
+  (list text false '()))
 
 (define (instruction-text inst)
   (car inst))
 
+(define (instruction-label inst)
+  (cadr inst))
+
 (define (instruction-execution-proc inst)
-  (cdr inst))
+  (caddr inst))
+
+(define (set-instruction-label! inst label)
+  (set-cdr! inst (cons label (cddr inst))))
 
 (define (set-instruction-execution-proc! inst proc)
-  (set-cdr! inst proc))
+  (set-cdr! (cdr inst) (list proc)))
 
 (#%provide make-new-machine)
 (define (make-new-machine)
   (let
     ((pc (make-register 'pc))
      (flag (make-register 'flag))
-     (stack (make-stack))
-     (the-instruction-sequence '()))
+     (stack (make-statck))
+     (the-instruction-sequence '())
+     (instructions-used '())
+     (entry-regs '())
+     (stack-regs '())
+     (reg-assignments '())
+     (inst-count 0)
+     (trace? false))
     (let
       ((the-ops
         (list
           (list
             'initialize-stack
-            (lambda () (stack 'initialize)))))
+            (lambda () (stack 'initialize)))
+          (list
+            'print-stack-statistics
+            (lambda () (stack 'print-statistics)))))
        (register-table
          (list (list 'pc pc) (list 'flag flag))))
       (define (allocate-register name)
@@ -164,13 +184,68 @@
           (if val
             (cadr val)
             (error "Unknown register:" name))))
+      (define (lookup-register- name)
+        (let ((val (assoc name register-table)))
+          (if val
+            (cadr val)
+            (begin
+              (allocate-register name)
+              (lookup-register name)))))
       (define (execute)
         (let ((insts (get-contents pc)))
           (if (null? insts)
             'done
             (begin
+              (if trace?
+                (begin
+                  (if (instruction-label (car insts))
+                    (begin
+                      (display (instruction-label (car insts)))
+                      (newline)))
+                  (display "  ")
+                  (display (instruction-text (car insts)))
+                  (newline)))
               ((instruction-execution-proc (car insts)))
+              (set! inst-count (+ inst-count 1))
               (execute)))))
+      (define (write-datapath-info insts)
+        (set! instructions-used (list-insts insts))
+        (set! entry-regs
+          (dedup
+            (map
+              cadr
+              (filter
+                (lambda (x) (eq? (car x) 'reg))
+                (map
+                  goto-dest
+                  (filter
+                    (lambda (inst) (eq? (car inst) 'goto))
+                    instructions-used))))))
+        (set! stack-regs
+          (dedup
+            (map
+              stack-inst-reg-name
+              (filter
+                (lambda (inst)
+                  (or
+                    (eq? (car inst) 'save)
+                    (eq? (car inst) 'restore)))
+                instructions-used))))
+        (set! reg-assignments
+          (map
+            (lambda (r)
+              (list
+                r
+                (map
+                  assign-value-exp
+                  (filter
+                    (lambda (assign-inst)
+                      (eq? (assign-reg-name assign-inst) r))
+                    (filter
+                      (lambda (inst) (eq? (car inst) 'assign))
+                      instructions-used)))))
+            (map car register-table)))
+        'done)
       (define (dispatch message)
         (cond
           ((eq? message 'start)
@@ -180,10 +255,22 @@
            (lambda (seq) (set! the-instruction-sequence seq)))
           ((eq? message 'allocate-register) allocate-register)
           ((eq? message 'get-register) lookup-register)
+          ((eq? message 'get-register-alloc) lookup-register-)
           ((eq? message 'install-operations)
            (lambda (ops) (set! the-ops (append the-ops ops))))
           ((eq? message 'stack) stack)
+          ((eq? message 'instructions-used) instructions-used)
+          ((eq? message 'entry-regs) entry-regs)
+          ((eq? message 'stack-regs) stack-regs)
+          ((eq? message 'reg-assigns) reg-assignments)
           ((eq? message 'operations) the-ops)
+          ((eq? message 'write-info) write-datapath-info)
+          ((eq? message 'reset-inst-count)
+           (display (list inst-count 'instructions 'executed))
+           (newline)
+           (set! inst-count 0))
+          ((eq? message 'trace-on) (set! trace? true))
+          ((eq? message 'trace-off) (set! trace? false))
           (else (error "Unknown request -- MACHINE" message))))
       dispatch)))
 
@@ -204,15 +291,17 @@
   'done)
 
 (#%provide make-machine)
-(define (make-machine register-names ops controller-text)
+(define (make-machine ops controller-text)
+#| (define (make-machine register-names ops controller-text) |#
   (let ((machine (make-new-machine)))
-    (for-each
-      (lambda (register-name)
-        ((machine 'allocate-register) register-name))
-      register-names)
+    #| (for-each |#
+    #|   (lambda (register-name) |#
+    #|     ((machine 'allocate-register) register-name)) |#
+    #|   register-names) |#
     ((machine 'install-operations) ops)
     ((machine 'install-instruction-sequence)
      (assemble controller-text machine))
+    ((machine 'write-info) controller-text)
     machine))
 
 ;; The Assembler
@@ -238,11 +327,14 @@
           (if (symbol? next-inst)
             (if (assoc next-inst labels)
               (error "Duplicate label -- ASSEMBLE" next-inst)
-              (receive
-                insts
-                (cons
-                  (make-label-entry next-inst insts)
-                  labels)))
+              (begin
+                (if (not (null? insts))
+                  (set-instruction-label! (car insts) next-inst))
+                (receive
+                  insts
+                  (cons
+                    (make-label-entry next-inst insts)
+                    labels))))
             (receive
               (cons
                 (make-instruction next-inst)
@@ -329,7 +421,7 @@
 (define (make-assign inst machine labels operations pc)
   (let
     ((target
-      (get-register machine (assign-reg-name inst)))
+      (get-register-alloc machine (assign-reg-name inst)))
      (value-exp (assign-value-exp inst)))
     (let
       ((value-proc
@@ -396,7 +488,7 @@
          (lambda () (set-contents! pc insts))))
       ((register-exp? dest)
        (let
-         ((reg (get-register machine (register-exp-reg dest))))
+         ((reg (get-register-alloc machine (register-exp-reg dest))))
          (lambda () (set-contents! pc (get-contents reg)))))
       (else (error "Bad GOTO instruction -- ASSEMBLE" inst)))))
 
@@ -406,7 +498,7 @@
 (define (make-save inst machine stack pc)
   (let
     ((reg
-      (get-register
+      (get-register-alloc
         machine
         (stack-inst-reg-name inst))))
     (lambda ()
@@ -416,7 +508,7 @@
 (define (make-restore inst machine stack pc)
   (let
     ((reg
-      (get-register
+      (get-register-alloc
         machine
         (stack-inst-reg-name inst))))
     (lambda ()
@@ -452,7 +544,7 @@
      (let ((insts (lookup-label labels (label-exp-label exp))))
        (lambda () insts)))
     ((register-exp? exp)
-     (let ((r (get-register machine (register-exp-reg exp))))
+     (let ((r (get-register-alloc machine (register-exp-reg exp))))
        (lambda () (get-contents r))))
     (else
      (error "Unknown expression type -- ASSEMBLE" exp))))
@@ -480,7 +572,7 @@
      (aprocs
       (map
         (lambda (e)
-          (make-primitive-exp e machine labels))
+          (make-op-primitive-exp e machine labels))
         (operation-exp-operands exp))))
     (lambda ()
       (apply op (map (lambda (p) (p)) aprocs)))))
@@ -501,16 +593,363 @@
       (error "Unknown operation -- ASSEMBLE" symbol))))
 
 #| 5.9 |#
-#| 5.10 |#
+
+(define (make-op-primitive-exp exp machine labels)
+  (cond
+    ((constant-exp? exp)
+     (let ((c (constant-exp-value exp)))
+       (lambda () c)))
+    ((register-exp? exp)
+     (let ((r (get-register-alloc machine (register-exp-reg exp))))
+       (lambda () (get-contents r))))
+    ((label-exp? exp)
+     (error "Label in operator expression" exp))
+    (else
+     (error "Unknown expression type -- ASSEMBLE" exp))))
+
 #| 5.11 |#
+
+(define (make-save- inst machine stack pc)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register-alloc machine reg-name)))
+      (lambda ()
+        (push stack (list reg-name (get-contents reg)))
+        (advance-pc pc)))))
+
+(define (make-restore- inst machine stack pc)
+  (let ((reg-name (stack-inst-reg-name inst)))
+    (let ((reg (get-register-alloc machine reg-name)))
+      (lambda ()
+        (let ((name-val (pop stack)))
+          (if (eq? (car name-val) reg-name)
+            (begin
+              (set-contents! reg (cadr name-val))
+              (advance-pc pc))
+            (error "Restore intro wrong register" inst)))))))
+
 #| 5.12 |#
+
+(#%provide sort-insts)
+(define (sort-insts insts)
+  (define (number inst)
+    (cond
+      ((symbol? inst) 0)
+      ((eq? (car inst) 'assign) 1)
+      ((eq? (car inst) 'test) 2)
+      ((eq? (car inst) 'branch) 3)
+      ((eq? (car inst) 'goto) 4)
+      ((eq? (car inst) 'save) 5)
+      ((eq? (car inst) 'restore) 6)
+      ((eq? (car inst) 'perform) 7)
+      (else 8)))
+  (define (compare inst1 inst2)
+    (cond
+      ((< (number inst1) (number inst2)) 'LT)
+      ((= (number inst1) (number inst2)) 'EQ)
+      (else 'GT)))
+  (define (split xs)
+    (cond
+      ((null? xs) (list '() '()))
+      ((null? (cdr xs)) (list xs '()))
+      (else
+       (let ((rest-parted (split (cddr xs))))
+         (list
+           (cons (car xs) (car rest-parted))
+           (cons (cadr xs) (cadr rest-parted)))))))
+  (define (merge insts1 insts2)
+    (cond
+      ((null? insts1) insts2)
+      ((null? insts2) insts1)
+      (else
+        (let
+          ((i1 (car insts1))
+           (i2 (car insts2)))
+          (cond
+            ((eq? (compare i1 i2) 'LT)
+             (cons i1 (merge (cdr insts1) insts2)))
+            ((eq? (compare i1 i2) 'EQ)
+             (cons i1 (cons i2 (merge (cdr insts1) (cdr insts2)))))
+            (else
+             (cons i2 (merge insts1 (cdr insts2)))))))))
+  (if (or (null? insts) (null? (cdr insts)))
+    insts
+    (let ((parted (split insts)))
+      (merge
+        (sort-insts (car parted))
+        (sort-insts (cadr parted))))))
+
+(define (flatten xss)
+  (if (null? xss)
+    '()
+    (append
+      (car xss)
+      (flatten (cdr xss)))))
+
+(define (filter pred xs)
+  (cond
+    ((null? xs) '())
+    ((pred (car xs))
+     (cons (car xs) (filter pred (cdr xs))))
+    (else
+     (filter pred (cdr xs)))))
+
+(define (nub xs)
+  (cond
+    ((null? xs) '())
+    ((null? (cdr xs)) xs)
+    ((equal? (car xs) (cadr xs))
+     (nub (cons (car xs) (cddr xs))))
+    (else
+     (cons (car xs) (nub (cdr xs))))))
+
+(#%provide list-insts)
+(define (list-insts insts)
+  (nub
+    (filter
+      (lambda (x) (not (symbol? x)))
+      (sort-insts insts))))
+
+(#%provide dedup)
+(define (dedup syms)
+  (cond
+    ((null? syms) '())
+    ((memq (car syms) (cdr syms))
+     (dedup (cdr syms)))
+    (else (cons (car syms) (dedup (cdr syms))))))
+
 #| 5.13 |#
+
+(define (inst-regs inst)
+  (cond
+    ((symbol? inst) '())
+    ((eq? (car inst) 'assign)
+     (cons
+       (assign-reg-name inst)
+       (let ((value-exp (assign-value-exp inst)))
+         (if (operation-exp? value-exp)
+           (operation-exp-regs value-exp)
+           (prim-exp-regs (car value-exp))))))
+    ((eq? (car inst) 'test)
+     (operation-exp-regs (test-condition inst)))
+    ((and
+       (eq? (car inst) 'goto)
+       (register-exp? (goto-dest inst)))
+     (list (register-exp-reg (goto-dest inst))))
+    ((eq? (car inst) 'save)
+     (list (stack-inst-reg-name inst)))
+    ((eq? (car inst) 'restore)
+     (list (stack-inst-reg-name inst)))
+    ((eq? (car inst) 'perform)
+     (operation-exp-regs (perform-action inst)))
+    (else '())))
+
+(define (operation-exp-regs exp)
+  (flatten
+    (map
+      prim-exp-regs
+      (operation-exp-operands exp))))
+
+(define (prim-exp-regs exp)
+  (if (register-exp? exp)
+    (list (register-exp-reg exp))
+    '()))
+
+(#%provide find-regs)
+(define (find-regs controller-text)
+  (dedup
+    (flatten
+      (map inst-regs controller-text))))
+
+#| (define (lookup-register- name) |#
+#|   (let ((val (assoc name register-table))) |#
+#|     (if val |#
+#|       (cadr val) |#
+#|       (begin |#
+#|         (allocate-register name) |#
+#|         (lookup-register name))))) |#
+
+(define (get-register-alloc machine reg-name)
+  ((machine 'get-register-alloc) reg-name))
 
 ;; Monitoring Machine Performance
 
 #| 5.14 |#
+
+#| (list |#
+#|   (list |#
+#|     'initialize-stack |#
+#|     (lambda () (stack 'initialize))) |#
+#|   (list |#
+#|     'print-stack-statistics |#
+#|     (lambda () (stack 'print-statistics)))) |#
+
+(define (make-statck)
+  (let
+    ((s '())
+     (number-pushes 0)
+     (max-depth 0)
+     (current-depth 0))
+    (define (push x)
+      (set! s (cons x s))
+      (set! number-pushes (+ 1 number-pushes))
+      (set! current-depth (+ 1 current-depth))
+      (set! max-depth (max current-depth max-depth)))
+    (define (pop)
+      (if (null? s)
+        (error "Empty statck -- POP")
+        (let ((top (car s)))
+          (set! s (cdr s))
+          (set! current-depth (- current-depth 1))
+          top)))
+    (define (initialize)
+      (set! s '())
+      (set! number-pushes 0)
+      (set! max-depth 0)
+      (set! current-depth 0)
+      'done)
+    (define (print-statistics)
+      (display
+        (list
+          'total-pushes '= number-pushes
+          'maximum-depth '= max-depth))
+      (newline))
+    (define (dispatch message)
+      (cond
+        ((eq? message 'push) push)
+        ((eq? message 'pop) (pop))
+        ((eq? message 'initialize) (initialize))
+        ((eq? message 'print-statistics)
+         (print-statistics))
+        (else
+         (error "Unknown request -- STATCK" message))))
+    dispatch))
+
+(#%provide fact-controller)
+(define fact-controller
+  '(controller
+    fact-loop
+      (perform (op initialize-stack))
+      (assign n (op read))
+      (assign continue (label fact-done))
+    fact
+      (test (op =) (reg n) (const 1))
+      (branch (label base-case))
+      (save continue)
+      (save n)
+      (assign n (op -) (reg n) (const 1))
+      (assign continue (label after-fact))
+      (goto (label fact))
+    after-fact
+      (restore n)
+      (restore continue)
+      (assign val (op *) (reg n) (reg val))
+      (goto (reg continue))
+    base-case
+      (assign val (const 1))
+      (goto (reg continue))
+    fact-done
+      (perform (op print) (reg val))
+      (perform (op print-stack-statistics))
+      (goto (label fact-loop))))
+
+(#%provide run-fact)
+(define (run-fact)
+  (let
+    ((fact-machine
+      (make-machine
+        (list
+          (list '- -)
+          (list '* *)
+          (list '= =)
+          (list 'read read)
+          (list 'print (lambda (x) (display x) (newline))))
+        fact-controller)))
+    (fact-machine 'trace-on)
+    (start fact-machine)))
+
+(#%provide fact-stack-pushes)
+(define (fact-stack-pushes n)
+  (* (- n 1) 2))
+
 #| 5.15 |#
+
+#| (inst-count 0) |#
+
+#|      ((eq? message 'reset-inst-count) |#
+#|       (display (list inst-count 'instructions 'executed)) |#
+#|       (newline) |#
+#|       (set! inst-count 0)) |#
+
 #| 5.16 |#
+
+#| (trace? false)) |#
+
+#|          (if trace? |#
+#|            (begin |#
+#|              (display (instruction-text (car insts))) |#
+#|              (newline))) |#
+
+#|      ((eq? message 'trace-on) (set! trace? true)) |#
+#|      ((eq? message 'trace-off) (set! trace? false)) |#
+
 #| 5.17 |#
+
+#| (define (make-instruction text) |#
+#|   (list text false '())) |#
+
+#| (define (instruction-text inst) |#
+#|   (car inst)) |#
+
+#| (define (instruction-label inst) |#
+#|   (cadr inst)) |#
+
+#| (define (instruction-execution-proc inst) |#
+#|   (caddr inst)) |#
+
+#| (define (set-instruction-label! inst label) |#
+#|   (set-cdr! inst (cons label (cddr inst)))) |#
+
+#| (define (set-instruction-execution-proc! inst proc) |#
+#|   (set-cdr! (cdr inst) (list proc))) |#
+
+#| (if (instruction-label (car insts)) |#
+#|   (begin |#
+#|     (display (instruction-label (car insts))) |#
+#|     (newline))) |#
+
+#| (begin |#
+  #| (if (not (null? insts)) |#
+    #| (set-instruction-label! (car insts) next-inst)) |#
+
 #| 5.18 |#
-#| 5.19 |#
+
+(define (make-register name)
+  (let
+    ((contents '*unassigned*)
+     (trace? false))
+    (define (dispatch message)
+      (cond
+        ((eq? message 'get) contents)
+        ((eq? message 'set)
+         (lambda (value)
+           (if trace?
+             (begin
+               (display
+                 (list
+                    name
+                    'old-contents '= contents
+                    'new-contents '= value))
+               (newline)))
+           (set! contents value)))
+        ((eq? message 'trace-on) (set! trace? true))
+        ((eq? message 'trace-off) (set! trace? false))
+        (else
+         (error "Unknown request -- REGISTER" message))))
+    dispatch))
+
+(define (trace-reg machine reg-name on?)
+  (let ((reg (get-register machine reg-name)))
+    (cond
+      ((eq? on? 'on) (reg 'trace-on))
+      ((eq? on? 'off) (reg 'trace-off))
+      (else "Unknown request - TRACE-REG" on?))))
