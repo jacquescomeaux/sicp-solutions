@@ -947,9 +947,132 @@
          (error "Unknown request -- REGISTER" message))))
     dispatch))
 
+(#%provide trace-reg)
 (define (trace-reg machine reg-name on?)
   (let ((reg (get-register machine reg-name)))
     (cond
       ((eq? on? 'on) (reg 'trace-on))
       ((eq? on? 'off) (reg 'trace-off))
       (else "Unknown request - TRACE-REG" on?))))
+
+(#%provide basic-ops)
+(define basic-ops
+  (list
+    (list 'null? null?)
+    (list 'pair? pair?)
+    (list 'car car)
+    (list 'cdr cdr)
+    (list 'cdr cdr)
+    (list 'cons cons)
+    (list 'set-cdr! set-cdr!)
+    (list '+ +)
+    (list 'not not)
+    (list 'read read)))
+
+(#%provide count-leaves-controller)
+(define count-leaves-controller
+  '(controller
+       (assign continue (label count-leaves-done))
+       (assign tree (op read))
+     count-leaves
+       (test (op null?) (reg tree))
+       (branch (label if-null))
+       (assign t (op pair?) (reg tree))
+       (test (op not) (reg t))
+       (branch (label if-leaf))
+       (save continue)
+       (save tree)
+       (assign continue (label after-car-tree))
+       (assign tree (op car) (reg tree))
+       (goto (label count-leaves))
+     after-car-tree
+       (restore tree)
+       (save tree)
+       (save val)
+       (assign tree (op cdr) (reg tree))
+       (assign continue (label after-cdr-tree))
+       (goto (label count-leaves))
+     after-cdr-tree
+       (assign t (reg val))
+       (restore val)
+       (restore tree)
+       (restore continue)
+       (assign val (op +) (reg t) (reg val))
+       (goto (reg continue))
+     if-null
+       (assign val (const 0))
+       (goto (reg continue))
+     if-leaf
+       (assign val (const 1))
+       (goto (reg continue))
+     count-leaves-done))
+
+(#%provide count-leaves-iter-controller)
+(define count-leaves-iter-controller
+  '(controller
+       (assign continue (label count-leaves-done))
+       (assign tree (op read))
+       (assign n (const 0))
+     count-iter
+       (test (op null?) (reg tree))
+       (branch (label if-null))
+       (assign t (op pair?) (reg tree))
+       (test (op not) (reg t))
+       (branch (label if-leaf))
+       (save tree)
+       (save continue)
+       (assign tree (op car) (reg tree))
+       (assign continue (label after-car-tree))
+       (goto (label count-iter))
+     after-car-tree
+       (restore continue)
+       (restore tree)
+       (assign tree (op cdr) (reg tree))
+       (goto (label count-iter))
+     if-null
+       (goto (reg continue))
+     if-leaf
+       (assign n (op +) (reg n) (const 1))
+       (goto (reg continue))
+     count-leaves-done))
+
+(#%provide append-controller)
+(define append-controller
+  '(controller
+      (assign x (op read))
+      (assign y (op read))
+      (assign continue (label append-done))
+    append
+      (test (op null?) (reg x))
+      (branch (label if-null))
+      (save x)
+      (save continue)
+      (assign x (op cdr) (reg x))
+      (assign continue (label after-append))
+      (goto (label append))
+    after-append
+      (restore continue)
+      (restore x)
+      (assign x (op car) (reg x))
+      (assign val (op cons) (reg x) (reg val))
+      (goto (reg continue))
+    if-null
+      (assign val (reg y))
+      (goto (reg continue))
+    append-done))
+
+(#%provide append!-controller)
+(define append!-controller
+  '(controller
+      (assign x (op read))
+      (assign y (op read))
+      (assign head (reg x))
+      (assign rest (op cdr) (reg x))
+    last-pair
+      (test (op null?) (reg rest))
+      (branch (label found-last-pair))
+      (assign head (reg rest))
+      (assign rest (op cdr) (reg rest))
+      (goto (label last-pair))
+    found-last-pair
+      (perform (op set-cdr!) (reg head) (reg y))))
