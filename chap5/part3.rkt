@@ -143,6 +143,11 @@
       (goto (reg continue))
     append-done))
 
+(define (last-pair x)
+  (if (null? (cdr x))
+    x
+    (last-pair (cdr x))))
+
 (#%provide append!)
 (define (append! x y)
   (set-cdr! (last-pair x) y)
